@@ -117,6 +117,8 @@ func SetupRouter(cfg *config.Config, c *provider.Container) *gin.Engine {
 			auth.POST("/login/verify-2fa", RateLimitMiddleware(redisClient, loginRule, KeyByIP), publicHandler.VerifyUser2FA)
 			auth.POST("/telegram/login", RateLimitMiddleware(redisClient, loginRule, KeyByIP), publicHandler.UserTelegramLogin)
 			auth.POST("/telegram/miniapp/login", RateLimitMiddleware(redisClient, loginRule, KeyByIP), publicHandler.UserTelegramMiniAppLogin)
+			auth.GET("/telegram/oidc/start", RateLimitMiddleware(redisClient, loginRule, KeyByIP), publicHandler.StartTelegramOIDCLogin)
+			auth.POST("/telegram/oidc/callback", RateLimitMiddleware(redisClient, loginRule, KeyByIP), publicHandler.TelegramOIDCLoginCallback)
 			auth.POST("/forgot-password", publicHandler.UserForgotPassword)
 		}
 
@@ -131,6 +133,8 @@ func SetupRouter(cfg *config.Config, c *provider.Container) *gin.Engine {
 			user.GET("/me/telegram", publicHandler.GetMyTelegramBinding)
 			user.POST("/me/telegram/bind", publicHandler.BindMyTelegram)
 			user.POST("/me/telegram/miniapp/bind", publicHandler.BindMyTelegramMiniApp)
+			user.GET("/me/telegram/oidc/start", publicHandler.StartTelegramOIDCBind)
+			user.POST("/me/telegram/oidc/callback", publicHandler.TelegramOIDCBindCallback)
 			user.DELETE("/me/telegram/unbind", publicHandler.UnbindMyTelegram)
 			user.POST("/me/email/send-verify-code", publicHandler.SendChangeEmailCode)
 			user.POST("/me/email/change", publicHandler.ChangeEmail)

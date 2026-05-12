@@ -3,14 +3,17 @@ package service
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dujiao-next/internal/cache"
@@ -46,14 +49,33 @@ type telegramReplaySetNXFunc func(ctx context.Context, key string, value interfa
 type TelegramAuthService struct {
 	cfg         config.TelegramAuthConfig
 	replaySetNX telegramReplaySetNXFunc
+
+	httpClient        *http.Client
+	oidcAuthEndpoint  string
+	oidcTokenEndpoint string
+	oidcJWKSEndpoint  string
+	oidcStateSet      func(ctx context.Context, key string, value string, ttlSeconds int) (bool, error)
+	oidcStateTake     func(ctx context.Context, key string) (string, bool, error)
+
+	jwksMu        sync.Mutex
+	jwksCache     map[string]*rsa.PublicKey
+	jwksFetchedAt time.Time
 }
 
 // NewTelegramAuthService 创建 Telegram 登录校验服务
 func NewTelegramAuthService(cfg config.TelegramAuthConfig) *TelegramAuthService {
-	return &TelegramAuthService{
+	svc := &TelegramAuthService{
 		cfg:         normalizeTelegramAuthConfig(cfg),
 		replaySetNX: cache.SetNX,
 	}
+	svc.httpClient = &http.Client{Timeout: 10 * time.Second}
+	svc.oidcAuthEndpoint = "https://oauth.telegram.org/auth"
+	svc.oidcTokenEndpoint = "https://oauth.telegram.org/token"
+	svc.oidcJWKSEndpoint = "https://oauth.telegram.org/.well-known/jwks.json"
+	svc.oidcStateSet = defaultTelegramOIDCStateSet
+	svc.oidcStateTake = defaultTelegramOIDCStateTake
+	svc.jwksCache = map[string]*rsa.PublicKey{}
+	return svc
 }
 
 // SetConfig 更新运行时配置
@@ -71,14 +93,29 @@ func (s *TelegramAuthService) PublicConfig() map[string]interface{} {
 			"enabled":      false,
 			"bot_username": "",
 			"mini_app_url": "",
+			"mode":         "",
 		}
 	}
 	cfg := normalizeTelegramAuthConfig(s.cfg)
+	mode := ResolveTelegramLoginMode(TelegramAuthSetting{
+		Enabled: cfg.Enabled, BotUsername: cfg.BotUsername, BotToken: cfg.BotToken,
+		ClientSecret: cfg.ClientSecret, OIDCRedirectURI: cfg.OIDCRedirectURI,
+	})
 	return map[string]interface{}{
 		"enabled":      cfg.Enabled,
 		"bot_username": strings.TrimSpace(cfg.BotUsername),
 		"mini_app_url": strings.TrimSpace(cfg.MiniAppURL),
+		"mode":         string(mode),
 	}
+}
+
+func (s *TelegramAuthService) currentLoginMode() (config.TelegramAuthConfig, TelegramLoginMode) {
+	cfg := normalizeTelegramAuthConfig(s.cfg)
+	mode := ResolveTelegramLoginMode(TelegramAuthSetting{
+		Enabled: cfg.Enabled, BotUsername: cfg.BotUsername, BotToken: cfg.BotToken,
+		ClientSecret: cfg.ClientSecret, OIDCRedirectURI: cfg.OIDCRedirectURI,
+	})
+	return cfg, mode
 }
 
 // VerifyLogin 校验 Telegram 登录载荷
@@ -172,6 +209,8 @@ func (s *TelegramAuthService) VerifyMiniAppInitData(ctx context.Context, initDat
 func normalizeTelegramAuthConfig(cfg config.TelegramAuthConfig) config.TelegramAuthConfig {
 	cfg.BotUsername = strings.TrimSpace(cfg.BotUsername)
 	cfg.BotToken = strings.TrimSpace(cfg.BotToken)
+	cfg.ClientSecret = strings.TrimSpace(cfg.ClientSecret)
+	cfg.OIDCRedirectURI = strings.TrimRight(strings.TrimSpace(cfg.OIDCRedirectURI), "/")
 	if cfg.LoginExpireSeconds <= 0 {
 		cfg.LoginExpireSeconds = 300
 	}
