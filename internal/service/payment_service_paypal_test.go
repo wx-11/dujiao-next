@@ -68,3 +68,55 @@ func TestShouldMarkFulfilling(t *testing.T) {
 	}
 }
 
+func TestIsOrderFullyAutoFulfill(t *testing.T) {
+	if isOrderFullyAutoFulfill(nil) {
+		t.Fatalf("nil order should not be fully auto")
+	}
+
+	autoSingle := &models.Order{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeAuto}}}
+	if !isOrderFullyAutoFulfill(autoSingle) {
+		t.Fatalf("single auto order should be fully auto")
+	}
+
+	manualSingle := &models.Order{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeManual}}}
+	if isOrderFullyAutoFulfill(manualSingle) {
+		t.Fatalf("single manual order should not be fully auto")
+	}
+
+	mixedSingle := &models.Order{Items: []models.OrderItem{
+		{FulfillmentType: constants.FulfillmentTypeAuto},
+		{FulfillmentType: constants.FulfillmentTypeManual},
+	}}
+	if isOrderFullyAutoFulfill(mixedSingle) {
+		t.Fatalf("mixed single order should not be fully auto")
+	}
+
+	parentAllAuto := &models.Order{Children: []models.Order{
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeAuto}}},
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeAuto}}},
+	}}
+	if !isOrderFullyAutoFulfill(parentAllAuto) {
+		t.Fatalf("parent with all auto children should be fully auto")
+	}
+
+	parentMixed := &models.Order{Children: []models.Order{
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeAuto}}},
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeManual}}},
+	}}
+	if isOrderFullyAutoFulfill(parentMixed) {
+		t.Fatalf("parent with mixed children should not be fully auto")
+	}
+
+	parentAllManual := &models.Order{Children: []models.Order{
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeUpstream}}},
+		{Items: []models.OrderItem{{FulfillmentType: constants.FulfillmentTypeManual}}},
+	}}
+	if isOrderFullyAutoFulfill(parentAllManual) {
+		t.Fatalf("parent with all manual/upstream children should not be fully auto")
+	}
+
+	emptyOrder := &models.Order{}
+	if isOrderFullyAutoFulfill(emptyOrder) {
+		t.Fatalf("order without items or children should not be fully auto")
+	}
+}

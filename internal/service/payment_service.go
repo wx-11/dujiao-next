@@ -881,6 +881,24 @@ func shouldAutoFulfill(order *models.Order) bool {
 	return true
 }
 
+// isOrderFullyAutoFulfill 判断订单是否完全为自动交付。
+// 父订单：所有子订单均满足 shouldAutoFulfill；单订单：自身满足 shouldAutoFulfill。
+// 用于支付成功时跳过"已支付"邮件——自动交付会紧接着发送含卡密内容的"已完成"邮件，避免重复打扰。
+func isOrderFullyAutoFulfill(order *models.Order) bool {
+	if order == nil {
+		return false
+	}
+	if len(order.Children) > 0 {
+		for i := range order.Children {
+			if !shouldAutoFulfill(&order.Children[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return shouldAutoFulfill(order)
+}
+
 func buildOrderSubject(order *models.Order) string {
 	if order == nil {
 		return ""
